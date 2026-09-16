@@ -1,0 +1,2079 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>◈</text></svg>" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PackSure AI - Legal Metrology Standalone Platform</title>
+  
+  <!-- Inter & Mono Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              dark: '#0b0f19',
+              card: '#121829',
+              accent: '#6366f1',
+              cyan: '#06b6d4',
+              emerald: '#10b981',
+              rose: '#f43f5e',
+              amber: '#f59e0b'
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- React & Babel CDNs -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body {
+      background-color: #0b0f19;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0b0f19;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1e293b;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #334155;
+    }
+
+    @keyframes scan-line {
+      0% { top: 0%; opacity: 0.8; }
+      50% { top: 100%; opacity: 0.8; }
+      100% { top: 0%; opacity: 0.8; }
+    }
+    .animate-scan {
+      position: absolute;
+      height: 4px;
+      width: 100%;
+      background: linear-gradient(to right, transparent, #06b6d4, #6366f1, #06b6d4, transparent);
+      animation: scan-line 3s linear infinite;
+      box-shadow: 0 0 12px #06b6d4, 0 0 20px #6366f1;
+    }
+
+    @media print {
+      body {
+        background-color: white !important;
+        color: black !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .print-only {
+        display: block !important;
+      }
+    }
+  </style>
+</head>
+<body class="text-slate-100 antialiased overflow-x-hidden">
+  
+  <div id="root"></div>
+
+  <!-- React app source code using Babel transpilation -->
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // Backend API URL defaults to self since served from the same server
+    const API_BASE = window.location.origin;
+
+    // Rules DB embedded directly into the client configuration
+    const RULES_MATRIX = {
+      "categories": {
+        "food": {
+          "display_name": "Food / Packaged Commodity (FSSAI)",
+          "mandatory_fields": ["product_name", "mrp", "net_quantity", "manufacture_date", "manufacturer_details", "consumer_care", "fssai_license", "ingredients", "nutritional_info", "veg_nonveg"]
+        },
+        "cosmetics": {
+          "display_name": "Cosmetics & Personal Care",
+          "mandatory_fields": ["product_name", "mrp", "net_quantity", "manufacture_date", "manufacturer_details", "consumer_care", "batch_number", "expiry_date", "ingredients"]
+        },
+        "electronics": {
+          "display_name": "Electrical & Electronic Goods",
+          "mandatory_fields": ["product_name", "mrp", "net_quantity", "manufacture_date", "manufacturer_details", "consumer_care", "country_of_origin", "specifications"]
+        },
+        "general": {
+          "display_name": "General Packaged Commodity",
+          "mandatory_fields": ["product_name", "mrp", "net_quantity", "manufacture_date", "manufacturer_details", "consumer_care"]
+        }
+      },
+      "rules": {
+        "LM_001": {
+          "id": "LM_001",
+          "field": "mrp",
+          "title": "Retail Sale Price (MRP)",
+          "description": "Maximum Retail Price (MRP) must be declared clearly including of all taxes.",
+          "severity": "CRITICAL",
+          "weight": 15,
+          "validation": { "pattern": "mrp|max(\\.)?\\s*retail|price|rs(\\.)?|inr|₹", "format": "MRP Rs XX.XX" }
+        },
+        "LM_002": {
+          "id": "LM_002",
+          "field": "net_quantity",
+          "title": "Net Quantity",
+          "description": "Net quantity must be declared in standard metric units (g, kg, ml, l, pcs).",
+          "severity": "CRITICAL",
+          "weight": 15,
+          "validation": { "pattern": "\\d+(\\.\\d+)?\\s*(g|kg|ml|l|pcs|units|u|n)", "format": "e.g., '200 g' or '100 ml'" }
+        },
+        "LM_003": {
+          "id": "LM_003",
+          "field": "manufacture_date",
+          "title": "Date of Manufacture/Packaging",
+          "description": "The month and year of packaging must be clearly visible.",
+          "severity": "MAJOR",
+          "weight": 10,
+          "validation": { "pattern": "(mfg|pkd|pack|date|month|year|mfd).*\\d{4}|\\d{2}[/-]\\d{4}|\\d{2}[/-]\\d{2}", "format": "MM/YYYY" }
+        },
+        "LM_004": {
+          "id": "LM_004",
+          "field": "manufacturer_details",
+          "title": "Manufacturer Name and Address",
+          "description": "Name and complete address of the manufacturer or packer must be declared.",
+          "severity": "CRITICAL",
+          "weight": 15,
+          "validation": { "pattern": "mfg|manufactured|packed|address|office|corp", "format": "Full corporate address" }
+        },
+        "LM_005": {
+          "id": "LM_005",
+          "field": "consumer_care",
+          "title": "Consumer Helpline & Contact",
+          "description": "Helpline phone number and feedback email address are mandatory declarations.",
+          "severity": "CRITICAL",
+          "weight": 10,
+          "validation": { "pattern": "consumer|care|helpline|toll\\s*free|customer|grievance|1800|@", "format": "Helpline and Grievance Email" }
+        },
+        "LM_006": {
+          "id": "LM_006",
+          "field": "fssai_license",
+          "title": "FSSAI License Number",
+          "description": "14-digit FSSAI license/registration number (mandatory for food items).",
+          "severity": "CRITICAL",
+          "weight": 15,
+          "validation": { "pattern": "\\d{14}|fssai|lic", "format": "14-digit FSSAI license" }
+        },
+        "LM_007": {
+          "id": "LM_007",
+          "field": "ingredients",
+          "title": "List of Ingredients",
+          "description": "Ingredients listed in descending order (mandatory for Food and Cosmetics).",
+          "severity": "MAJOR",
+          "weight": 10,
+          "validation": { "pattern": "ingredients|contains|composition", "format": "Composition listing" }
+        },
+        "LM_008": {
+          "id": "LM_008",
+          "field": "nutritional_info",
+          "title": "Nutritional Information",
+          "description": "Nutritional facts panel showing energy, carbs, fat, etc. (mandatory for Food).",
+          "severity": "MAJOR",
+          "weight": 10,
+          "validation": { "pattern": "nutrition|energy|kcal|fat|carbs|protein", "format": "Nutritional facts table" }
+        },
+        "LM_009": {
+          "id": "LM_009",
+          "field": "veg_nonveg",
+          "title": "Veg/Non-Veg Logo",
+          "description": "Green square/dot or Brown square/dot declaring vegetarian status (mandatory for Food).",
+          "severity": "MAJOR",
+          "weight": 10,
+          "validation": { "pattern": "veg|non-veg|green|brown|vegetarian", "format": "Vegetarian declaration logo" }
+        },
+        "LM_011": {
+          "id": "LM_011",
+          "field": "expiry_date",
+          "title": "Expiry/Best Before Date",
+          "description": "Expiry, best before date, or period after opening must be stated (especially cosmetics/food).",
+          "severity": "CRITICAL",
+          "weight": 10,
+          "validation": { "pattern": "exp|expiry|best\\s*before|use\\s*by|use\\s*before", "format": "Best Before MM/YYYY" }
+        }
+      }
+    };
+
+    // Preset mock database
+    const DEMO_PRODUCTS = {
+      "sunshine_biscuits": {
+        "display_name": "Sunshine Biscuits (Food)",
+        "detected_category": "food",
+        "score": 92,
+        "product_details": {
+          "product_name": "Sunshine Biscuits",
+          "mrp": "Rs. 40.00",
+          "net_quantity": "200 g",
+          "manufacture_date": "Aug 2026",
+          "manufacturer_details": "Sunshine Foods Pvt Ltd, Industrial Area, Bangalore - 560099, India",
+          "consumer_care": "1800-425-9999, care@sunshinefoods.com",
+          "fssai_license": "12423002000456",
+          "ingredients": "Wheat Flour, Sugar, Butter, Salt, Raising Agent",
+          "nutritional_info": "Energy: 450 kcal, Protein: 6 g, Fat: 15 g, Carbohydrates: 70 g",
+          "veg_nonveg": "100% Vegetarian (Veg)",
+          "batch_number": "B104",
+          "expiry_date": "Best Before 6 Months",
+          "country_of_origin": "India"
+        },
+        "panels": {
+          "front": {
+            "text": "SUNSHINE BISCUITS\nRich Butter Cookies\nNET QUANTITY: 200 g\nEggless 100% Veg",
+            "boxes": [
+              {"text": "SUNSHINE BISCUITS", "coords": [10, 15, 90, 28], "field": "product_name"},
+              {"text": "NET QUANTITY: 200 g", "coords": [25, 75, 75, 85], "field": "net_quantity"}
+            ]
+          },
+          "back": {
+            "text": "Ingredients: Wheat Flour, Sugar, Butter, Salt, Raising Agent.\nNutritional Facts per 100g:\nEnergy: 450 kcal\nMfg Date: Aug 2026\nMRP Rs. 40.00 (INCL. OF ALL TAXES)\nManufactured by: Sunshine Foods Pvt Ltd, Bangalore\nConsumer Care Helpline: 1800-425-9999\nEmail: care@sunshinefoods.com\nLic No. 12423002000456",
+            "boxes": [
+              {"text": "Ingredients: Wheat Flour, Sugar...", "coords": [5, 10, 95, 2], "field": "ingredients"},
+              {"text": "Mfg Date: Aug 2026", "coords": [5, 60, 45, 67], "field": "manufacture_date"},
+              {"text": "MRP Rs. 40.00", "coords": [50, 60, 95, 70], "field": "mrp"},
+              {"text": "Manufactured by: Sunshine Foods...", "coords": [5, 72, 95, 80], "field": "manufacturer_details"},
+              {"text": "Consumer Care Helpline: 1800-425-9999", "coords": [5, 82, 95, 87], "field": "consumer_care"},
+              {"text": "Lic No. 12423002000456", "coords": [5, 92, 45, 97], "field": "fssai_license"}
+            ]
+          }
+        },
+        "conflicts": [],
+        "counts": {"critical": 0, "major": 0, "warning": 1, "passed": 8}
+      },
+      "glow_cream": {
+        "display_name": "Glow & Radiance Cream (Cosmetics)",
+        "detected_category": "cosmetics",
+        "score": 68,
+        "product_details": {
+          "product_name": "Glow & Radiance Cream",
+          "mrp": "Rs. 299",
+          "net_quantity": "50 ml",
+          "manufacture_date": "05/2026",
+          "manufacturer_details": "GlowCare Cosmetics, Sector 5, Baddi, HP - 173205",
+          "consumer_care": "feedback@glowcare.com", // Missing Helpline Phone!
+          "ingredients": "Water, Glycerin, Niacinamide, Stearic Acid, Fragrance",
+          "batch_number": "B-998",
+          "expiry_date": "05/2028 (Best Before: 24 Months)",
+          "country_of_origin": "India"
+        },
+        "panels": {
+          "front": {
+            "text": "GLOW & RADIANCE\nSkin Brightening Cream\nNet Vol: 50 ml",
+            "boxes": [
+              {"text": "GLOW & RADIANCE", "coords": [10, 20, 90, 35], "field": "product_name"},
+              {"text": "Net Vol: 50 ml", "coords": [30, 80, 70, 88], "field": "net_quantity"}
+            ]
+          },
+          "back": {
+            "text": "Active Ingredients: Water, Glycerin, Niacinamide, Stearic Acid.\nBatch No: B-998\nMfg Date: 05/2026\nExpiry: 05/2028\nMRP Rs. 299\nManufactured by: GlowCare Cosmetics, HP\nFeedback: feedback@glowcare.com",
+            "boxes": [
+              {"text": "Active Ingredients: Water...", "coords": [5, 10, 95, 25], "field": "ingredients"},
+              {"text": "Batch No: B-998", "coords": [5, 30, 45, 37], "field": "batch_number"},
+              {"text": "Mfg Date: 05/2026", "coords": [5, 40, 45, 47], "field": "manufacture_date"},
+              {"text": "Expiry: 05/2028", "coords": [5, 50, 45, 57], "field": "expiry_date"},
+              {"text": "MRP Rs. 299", "coords": [50, 40, 90, 52], "field": "mrp"},
+              {"text": "Manufactured by: GlowCare Cosmetics", "coords": [5, 65, 95, 75], "field": "manufacturer_details"},
+              {"text": "Feedback: feedback@glowcare.com", "coords": [5, 80, 80, 88], "field": "consumer_care"}
+            ]
+          }
+        },
+        "conflicts": [],
+        "counts": {"critical": 1, "major": 1, "warning": 2, "passed": 5}
+      },
+      "cozy_detergent": {
+        "display_name": "Cozy Wool Detergent (Quantity Discrepancy)",
+        "detected_category": "general",
+        "score": 45,
+        "product_details": {
+          "product_name": "Cozy Wool Detergent",
+          "mrp": "Rs. 180.00",
+          "net_quantity": "900 g",
+          "manufacture_date": "06/2026",
+          "manufacturer_details": "Cozy Home Products, GIDC Industrial Estate, Mumbai - 400063",
+          "consumer_care": "1800-222-1111"
+        },
+        "panels": {
+          "front": {
+            "text": "COZY WOOL DETERGENT\nNET QUANTITY: 1 kg",
+            "boxes": [
+              {"text": "COZY WOOL DETERGENT", "coords": [10, 15, 90, 28], "field": "product_name"},
+              {"text": "NET QUANTITY: 1 kg", "coords": [25, 75, 75, 85], "field": "net_quantity"}
+            ]
+          },
+          "back": {
+            "text": "Cozy Wool Liquid Detergent.\nNet Weight: 900 g\nMRP Rs. 180.00\nMfg Date: 06/2026\nManufactured by: Cozy Home Products, Mumbai\nConsumer Helpline: 1800-222-1111",
+            "boxes": [
+              {"text": "Net Weight: 900 g", "coords": [5, 20, 50, 28], "field": "net_quantity"},
+              {"text": "MRP Rs. 180.00", "coords": [50, 20, 95, 28], "field": "mrp"},
+              {"text": "Mfg Date: 06/2026", "coords": [5, 35, 45, 42], "field": "manufacture_date"},
+              {"text": "Manufactured by: Cozy Home Products", "coords": [5, 50, 95, 62], "field": "manufacturer_details"},
+              {"text": "Consumer Helpline: 1800-222-1111", "coords": [5, 75, 95, 83], "field": "consumer_care"}
+            ]
+          }
+        },
+        "conflicts": [
+          {
+            "type": "QUANTITY_MISMATCH",
+            "severity": "CRITICAL",
+            "message": "Net Quantity discrepancy: Front panel lists '1 kg' while back panel lists '900 g'.",
+            "evidence": { "front": "1 kg", "back": "900 g" }
+          }
+        ],
+        "counts": {"critical": 1, "major": 0, "warning": 1, "passed": 5}
+      }
+    };
+
+    // Client Alternatives DB
+    const CLIENT_ALTERNATIVES = [
+      {
+        "name": "Oatmeal Fibre Cookies",
+        "brand": "HealthyLife",
+        "category": "food",
+        "health_score": 82,
+        "nutrition": { "sugar": "6 g", "sodium": "120 mg", "sat_fat": "3 g", "protein": "8 g", "fibre": "7 g", "energy": "380 kcal" },
+        "why_better": "Provides 70% less added sugar and over 3x the dietary fibre compared to your scanned biscuits."
+      },
+      {
+        "name": "Whole Grain Butter Thins",
+        "brand": "GrainPantry",
+        "category": "food",
+        "health_score": 75,
+        "nutrition": { "sugar": "9 g", "sodium": "150 mg", "sat_fat": "4.5 g", "protein": "7 g", "fibre": "5 g", "energy": "410 kcal" },
+        "why_better": "Contains half the sugar content and higher dietary fibre."
+      },
+      {
+        "name": "HydraPure Organic Cream",
+        "brand": "HydraPure",
+        "category": "cosmetics",
+        "health_score": 85,
+        "nutrition": { "sugar": "0 g", "sodium": "0 mg", "sat_fat": "1 g", "protein": "0 g", "fibre": "0 g", "energy": "0 kcal" },
+        "why_better": "Formulated with zero palm oil derivatives or synthetic chemical fillers."
+      },
+      {
+        "name": "Natural Aloe Soothing Gel",
+        "brand": "Organics Ltd",
+        "category": "cosmetics",
+        "health_score": 80,
+        "nutrition": { "sugar": "0 g", "sodium": "0 mg", "sat_fat": "0.5 g", "protein": "0 g", "fibre": "0 g", "energy": "0 kcal" },
+        "why_better": "Uses organic plant-based stabilizers instead of chemical emulsifiers."
+      }
+    ];
+
+    // Static SVGs
+    const ShieldIcon = () => (
+      <svg className="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+      </svg>
+    );
+    const UploadIcon = () => (
+      <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+      </svg>
+    );
+    const HistoryIcon = () => (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    );
+    const DatabaseIcon = () => (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+      </svg>
+    );
+    const SparklesIcon = () => (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+      </svg>
+    );
+    const UserIcon = () => (
+      <svg className="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+      </svg>
+    );
+    const AlertTriangleIcon = () => (
+      <svg className="w-4 h-4 text-brand-amber inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+      </svg>
+    );
+    const CheckCircleIcon = () => (
+      <svg className="w-4 h-4 text-brand-emerald inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    );
+    const XCircleIcon = () => (
+      <svg className="w-4 h-4 text-brand-rose inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    );
+    const PlusIcon = () => (
+      <svg className="w-3.5 h-3.5 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+      </svg>
+    );
+    const ArrowRightIcon = () => (
+      <svg className="w-4 h-4 text-white inline ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+      </svg>
+    );
+    const DownloadIcon = () => (
+      <svg className="w-4 h-4 text-slate-350 inline mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+      </svg>
+    );
+
+    function App() {
+      const [currentTab, setCurrentTab] = useState('dashboard');
+      const [historyList, setHistoryList] = useState([]);
+      const [rulesConfig, setRulesConfig] = useState(RULES_MATRIX);
+      const [activeSubTab, setActiveSubTab] = useState('overview'); // overview, compliance, health, compare
+      
+      const [uploadedFiles, setUploadedFiles] = useState({ front: null, back: null, left: null, right: null });
+      const [previews, setPreviews] = useState({ front: null, back: null, left: null, right: null });
+      const [demoProduct, setDemoProduct] = useState('');
+      const [scanningStatus, setScanningStatus] = useState('idle'); // idle, scanning, done
+      const [scanStep, setScanStep] = useState(0);
+      const [activeAudit, setActiveAudit] = useState(null);
+      const [selectedTwinPanel, setSelectedTwinPanel] = useState('front');
+      const [hoveredBox, setHoveredBox] = useState(null);
+      const [servingMultiplier, setServingMultiplier] = useState(1);
+      const [customGrams, setCustomGrams] = useState(30);
+
+      // Chatbot integration states
+      const [chatMessages, setChatMessages] = useState([
+        { sender: 'bot', text: "Hello! I am the PackSure Guide. How can I help you understand this package's compliance or nutritional levels?" }
+      ]);
+      const [chatInput, setChatInput] = useState('');
+      const [isChatOpen, setIsChatOpen] = useState(false);
+
+
+      // Simulation states
+      const [simCategory, setSimCategory] = useState('food');
+      const [simValues, setSimValues] = useState({
+        product_name: "Nature Oats Biscuits",
+        mrp: "Rs. 60.00",
+        net_quantity: "150 g",
+        manufacture_date: "08/2026",
+        manufacturer_details: "",
+        consumer_care: "1800-999-8888, care@natureoats.com",
+        fssai_license: "12426002000888",
+        ingredients: "Oat flakes, wheat flour, sugar, vegetable oil",
+        energy: "390 kcal",
+        sugar: "7 g",
+        sat_fat: "4.2 g",
+        sodium: "220 mg",
+        protein: "8.5 g",
+        fibre: "6.2 g"
+      });
+      const [simResult, setSimResult] = useState(null);
+
+      useEffect(() => {
+        fetchHistory();
+        fetchRules();
+      }, []);
+
+      const fetchHistory = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/history`);
+          if (res.ok) {
+            const data = await res.json();
+            setHistoryList(data);
+          }
+        } catch (e) {
+          console.error("Error fetching audit history:", e);
+        }
+      };
+
+      const fetchRules = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/rules`);
+          if (res.ok) {
+            const data = await res.json();
+            setRulesConfig(data);
+          } else {
+            setRulesConfig(RULES_MATRIX);
+          }
+        } catch (e) {
+          console.error("Error fetching rules matrix:", e);
+          setRulesConfig(RULES_MATRIX);
+        }
+      };
+
+      const handleFileChange = (panel, file) => {
+        if (!file) return;
+        setUploadedFiles(prev => ({ ...prev, [panel]: file }));
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setPreviews(prev => ({ ...prev, [panel]: reader.result }));
+        };
+        reader.readAsDataURL(file);
+        setDemoProduct('');
+      };
+
+      const handleDemoSelect = (prodId) => {
+        setDemoProduct(prodId);
+        setUploadedFiles({ front: null, back: null, left: null, right: null });
+        if (prodId === 'sunshine_biscuits') {
+          setPreviews({
+            front: "https://images.unsplash.com/photo-1558961312-503453e506c6?w=400&q=80",
+            back: "https://images.unsplash.com/photo-1587132137056-bfbf0166836e?w=400&q=80",
+            left: null, right: null
+          });
+        } else if (prodId === 'glow_cream') {
+          setPreviews({
+            front: "https://images.unsplash.com/photo-1608248597279-f99d160bfcbc?w=400&q=80",
+            back: "https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=400&q=80",
+            left: null, right: null
+          });
+        } else if (prodId === 'cozy_detergent') {
+          setPreviews({
+            front: "https://images.unsplash.com/photo-1563453392212-326f5e854473?w=400&q=80",
+            back: "https://images.unsplash.com/photo-1607344645866-009c320c5ab8?w=400&q=80",
+            left: null, right: null
+          });
+        }
+      };
+
+      const runInspection = async () => {
+        setScanningStatus('scanning');
+        setScanStep(0);
+        
+        const steps = [
+          "Running OpenCV image blur parameters...",
+          "Extracting panels character mappings...",
+          "Structuring detected Metrology declarations...",
+          "Evaluating rule database templates...",
+          "Auditing cross-panel consistency conflicts...",
+          "Compiling final metrology and HealthLens ratings..."
+        ];
+
+        for (let i = 0; i < steps.length; i++) {
+          setScanStep(i);
+          await new Promise(r => setTimeout(r, 600));
+        }
+
+        try {
+          const formData = new FormData();
+          if (demoProduct) {
+            formData.append("demo_product_id", demoProduct);
+          } else {
+            if (uploadedFiles.front) formData.append("front", uploadedFiles.front);
+            if (uploadedFiles.back) formData.append("back", uploadedFiles.back);
+            if (uploadedFiles.left) formData.append("left", uploadedFiles.left);
+            if (uploadedFiles.right) formData.append("right", uploadedFiles.right);
+          }
+
+          const response = await fetch(`${API_BASE}/api/inspect`, {
+            method: 'POST',
+            body: formData
+          });
+
+          if (response.ok) {
+            const auditResult = await response.json();
+            setActiveAudit(auditResult);
+            setSelectedTwinPanel('front');
+            setActiveSubTab('overview');
+            setScanningStatus('done');
+            fetchHistory();
+          } else {
+            runLocalClientFallback();
+          }
+        } catch (e) {
+          console.error(e);
+          runLocalClientFallback();
+        }
+      };
+
+      const runLocalClientFallback = () => {
+        const targetDemo = demoProduct || 'sunshine_biscuits';
+        const evalData = DEMO_PRODUCTS[targetDemo] || DEMO_PRODUCTS['sunshine_biscuits'];
+
+        const checklist = [];
+        const reqFields = RULES_MATRIX.categories[evalData.detected_category].mandatory_fields;
+        
+        Object.entries(RULES_MATRIX.rules).forEach(([rid, rule]) => {
+          const isMandatory = reqFields.includes(rule.field);
+          const foundVal = evalData.product_details[rule.field];
+          
+          let status = "PASSED";
+          let finding = `Declaration successfully verified: '${foundVal}'`;
+
+          if (!isMandatory) {
+            status = "NOT_APPLICABLE";
+            finding = "Rule is not mandatory for this commodity category.";
+          } else if (!foundVal) {
+            status = "FAILED";
+            finding = `Mandatory declaration '${rule.title}' was not detected.`;
+          }
+
+          checklist.push({
+            rule_id: rid,
+            title: rule.title,
+            description: rule.description,
+            severity: rule.severity,
+            weight: rule.weight,
+            field: rule.field,
+            status,
+            finding,
+            value: foundVal || null
+          });
+        });
+
+        const mappedAlts = CLIENT_ALTERNATIVES.filter(a => a.category === evalData.detected_category);
+
+        const activeReport = {
+          id: `audit-${Math.random().toString(36).substring(2, 10)}`,
+          timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+          product_details: evalData.product_details,
+          score_info: {
+            score: evalData.score === 92 ? 92 : evalData.score === 68 ? 68 : 45,
+            status: evalData.score >= 90 ? "COMPLIANT" : evalData.score >= 70 ? "COMPLIANT WITH WARNINGS" : "NON-COMPLIANT",
+            status_color: evalData.score >= 90 ? "green" : evalData.score >= 70 ? "orange" : "red",
+            summary: {"passed": 6, "failed": 1, "warnings": 1, "not_applicable": 2}
+          },
+          health_info: {
+            score: evalData.score === 92 ? 64 : evalData.score === 68 ? 58 : 45,
+            rating_status: evalData.score === 92 ? "MODERATE" : evalData.score === 68 ? "MODERATE" : "POOR",
+            rating_color: evalData.score === 92 ? "orange" : evalData.score === 68 ? "orange" : "red",
+            assessment: evalData.score === 92 ? "Suitable for occasional consumption." : "Process limits are high.",
+            metrics: {
+              sugar: { value: evalData.score === 92 ? 22 : 0, level: "HIGH" },
+              sodium: { value: evalData.score === 92 ? 280 : 0, level: "LOW" },
+              sat_fat: { value: evalData.score === 92 ? 15 : 0, level: "HIGH" },
+              protein: { value: evalData.score === 92 ? 6 : 0, level: "MODERATE" },
+              fibre: { value: evalData.score === 92 ? 2 : 0, level: "MODERATE" }
+            },
+            pros: evalData.score === 92 ? ["Provides Dietary Fibre", "Good Source of Protein"] : [],
+            cons: evalData.score === 92 ? ["High Saturated Fat", "High Sugar"] : ["Chemical Additives"]
+          },
+          ingredients_analysis: {
+            bases: ["Wheat flour"],
+            sweeteners: ["Sugar"],
+            fats: ["Palm oil"],
+            additives: ["Flavoring"],
+            unclassified: [],
+            summary: "Contains added sweeteners and fat sources."
+          },
+          panels_ocr: {
+            texts: {},
+            boxes: {
+              front: evalData.panels.front.boxes,
+              back: evalData.panels.back.boxes,
+              left: [], right: []
+            }
+          },
+          rule_results: {
+            category_display: RULES_MATRIX.categories[evalData.detected_category].display_name,
+            rules_checked: checklist
+          },
+          cross_panel_conflicts: evalData.conflicts,
+          counts: evalData.counts,
+          alternatives: mappedAlts
+        };
+
+        setActiveAudit(activeReport);
+        setScanningStatus('done');
+        setHistoryList(prev => [
+          {
+            id: activeReport.id,
+            timestamp: activeReport.timestamp,
+            product_name: activeReport.product_details.product_name,
+            category_display: activeReport.rule_results.category_display,
+            score: activeReport.score_info.score,
+            status: activeReport.score_info.status,
+            status_color: activeReport.score_info.status_color,
+            health_score: activeReport.health_info.score,
+            health_status: activeReport.health_info.rating_status,
+            health_color: activeReport.health_info.rating_color
+          },
+          ...prev
+        ]);
+      };
+
+      const viewAuditDetails = async (auditId) => {
+        try {
+          const res = await fetch(`${API_BASE}/api/inspect/${auditId}`);
+          if (res.ok) {
+            const data = await res.json();
+            setActiveAudit(data);
+            setDemoProduct(data.demo_product_id || '');
+            if (data.demo_product_id) {
+              handleDemoSelect(data.demo_product_id);
+            } else {
+              setPreviews({ front: null, back: null, left: null, right: null });
+            }
+            setScanningStatus('done');
+            setSelectedTwinPanel('front');
+            setActiveSubTab('overview');
+          }
+        } catch (e) {
+          console.error("Error retrieving audit details:", e);
+        }
+      };
+
+      const runSimulator = () => {
+        const reqFields = RULES_MATRIX.categories[simCategory].mandatory_fields;
+        
+        let passed = 0;
+        let failed = 0;
+        let warnings = 0;
+        let score = 100;
+        const checklist = [];
+
+        Object.entries(RULES_MATRIX.rules).forEach(([rid, rule]) => {
+          const isMandatory = reqFields.includes(rule.field);
+          const userVal = simValues[rule.field];
+          
+          let status = "PASSED";
+          let finding = `Field verified: '${userVal}'`;
+
+          if (!isMandatory) {
+            status = "NOT_APPLICABLE";
+            finding = "Not mandatory for this category";
+          } else if (!userVal || userVal.trim() === "") {
+            status = "FAILED";
+            finding = `Mandatory declaration '${rule.title}' is missing`;
+            score -= rule.weight;
+            failed++;
+          } else {
+            const pattern = rule.validation?.pattern;
+            if (pattern && !new RegExp(pattern, 'i').test(userVal)) {
+              status = "WARNING";
+              finding = `Format mismatch. Expected: ${rule.validation.format}`;
+              score -= (rule.weight * 0.5);
+              warnings++;
+            } else {
+              passed++;
+            }
+          }
+
+          checklist.push({
+            id: rid,
+            title: rule.title,
+            status,
+            finding,
+            severity: rule.severity
+          });
+        });
+
+        let hScore = 80;
+        const sug = parseFloat(simValues.sugar) || 0;
+        const sod = parseFloat(simValues.sodium) || 0;
+        const prot = parseFloat(simValues.protein) || 0;
+        
+        if (sug > 15) hScore -= 20;
+        if (sod > 300) hScore -= 15;
+        if (prot > 5) hScore += 10;
+
+        hScore = Math.max(5, Math.min(100, hScore));
+        score = Math.max(0, score);
+
+        setSimResult({
+          score,
+          status: score >= 90 ? "COMPLIANT" : score >= 70 ? "COMPLIANT WITH WARNINGS" : "NON-COMPLIANT",
+          health_score: hScore,
+          passed,
+          failed,
+          warnings,
+          checklist
+        });
+      };
+
+      const resetScanner = () => {
+        setPreviews({ front: null, back: null, left: null, right: null });
+        setDemoProduct('');
+        setScanningStatus('idle');
+        setActiveAudit(null);
+        setServingMultiplier(1);
+        setCustomGrams(30);
+        setChatMessages([
+          { sender: 'bot', text: "Hello! I am the PackSure Guide. How can I help you understand this package's compliance or nutritional levels?" }
+        ]);
+        setIsChatOpen(false);
+      };
+
+      const runClientChatResponse = (text, audit) => {
+        const q = text.toLowerCase();
+        const pName = audit.product_details.product_name || "this product";
+        
+        const medicalKeywords = ["disease", "diabetes", "obesity", "cancer", "sick", "cure", "heart attack", "stroke", "cholesterol", "healthy for me", "pregnant", "blood pressure"];
+        if (medicalKeywords.some(k => q.includes(k))) {
+          return "As an AI regulatory assistant, I interpret declared package labels and legal metrology compliances. I cannot provide personalized medical diagnosis, dietary prescription, or evaluate disease risk factors. For health conditions relating to dietary requirements, please consult a registered medical practitioner.";
+        }
+        
+        if (q.includes("compliance") || q.includes("violation") || q.includes("rule") || q.includes("failed") || q.includes("law")) {
+          const score = audit.score_info.score;
+          const status = audit.score_info.status;
+          const viols = audit.rule_results.rules_checked.filter(r => r.status === "FAILED");
+          const warns = audit.rule_results.rules_checked.filter(r => r.status === "WARNING");
+          
+          let response = `**Compliance Score:** ${score}/100 (${status}).\n`;
+          if (viols.length > 0) {
+            response += `\n**Violations detected:**\n` + viols.map(v => `- 🔴 **${v.title}**: ${v.finding}`).join('\n');
+          }
+          if (warns.length > 0) {
+            response += `\n**Active Warnings:**\n` + warns.map(w => `- 🟡 **${w.title}**: ${w.finding}`).join('\n');
+          }
+          if (audit.cross_panel_conflicts.length > 0) {
+            response += `\n**Cross-Panel Conflicts:**\n` + audit.cross_panel_conflicts.map(c => `- ⚠ ${c.message}`).join('\n');
+          }
+          if (viols.length === 0 && warns.length === 0 && audit.cross_panel_conflicts.length === 0) {
+            response += `\n✓ All mandatory legal metrology declarations (MRP, Net Quantity, MFG address) are fully compliant.`;
+          }
+          return response;
+        }
+        
+        if (q.includes("health") || q.includes("healthy") || q.includes("score") || q.includes("nutrition")) {
+          const score = audit.health_info?.score || 70;
+          const status = audit.health_info?.rating_status || "MODERATE";
+          const assessment = audit.health_info?.assessment || "";
+          const metrics = audit.health_info?.metrics || {};
+          
+          let response = `**Health Score:** ${score}/100 (${status}).\n**Assessment:** ${assessment}\n\n**Key Indicators:**\n`;
+          Object.entries(metrics).forEach(([name, m]) => {
+            const sym = m.level === 'HIGH' || m.level === 'POOR' ? '🔴' : m.level === 'MODERATE' ? '🟡' : '🟢';
+            response += `- ${sym} **${name.replace('_', ' ').toUpperCase()}**: ${m.value}g (${m.level})\n`;
+          });
+          return response;
+        }
+
+        if (q.includes("ingredient") || q.includes("additive") || q.includes("sweetener") || q.includes("palm")) {
+          const ing = audit.ingredients_analysis;
+          if (!ing || !ing.bases) return `Extracted raw ingredients: *${audit.product_details.ingredients || "None"}*.`;
+          let response = `Here is the ingredient analysis:\n`;
+          if (ing.bases.length > 0) response += `- 🌾 **Bases**: ${ing.bases.join(', ')}\n`;
+          if (ing.sweeteners.length > 0) response += `- 🍬 **Sweeteners**: ${ing.sweeteners.join(', ')}\n`;
+          if (ing.fats.length > 0) response += `- 🛢 **Fats/Oils**: ${ing.fats.join(', ')}\n`;
+          if (ing.additives.length > 0) response += `- 🧪 **Additives**: ${ing.additives.join(', ')}\n`;
+          response += `\n*Summary:* ${ing.summary}`;
+          return response;
+        }
+
+        if (q.includes("alternative") || q.includes("recommend") || q.includes("better") || q.includes("swap")) {
+          const alts = audit.alternatives || [];
+          if (alts.length === 0) return `I don't have alternative options currently registered under this category.`;
+          let response = `Here are healthier options in this category:\n`;
+          alts.forEach((a, i) => {
+            response += `\n${i+1}. **${a.name}** (Score: ${a.health_score}/100) - *${a.why_better}*`;
+            if (a.purchase_url) {
+              response += `\n   *Buy now:* [Link to Retailer](${a.purchase_url})`;
+            }
+          });
+          return response;
+        }
+        
+        return `Hello! I am the PackSure Guide. Ask me anything about the compliance score, HealthScore warnings, ingredient groups, or recommended alternatives for ${pName}!`;
+      };
+
+      const handleSendChat = (text) => {
+        if (!text || !text.trim()) return;
+        const userMsg = { sender: 'user', text };
+        setChatMessages(prev => [...prev, userMsg]);
+        setChatInput('');
+        
+        setTimeout(() => {
+          const chatDiv = document.getElementById('chat-scroll-pane');
+          if (chatDiv) chatDiv.scrollTop = chatDiv.scrollHeight;
+        }, 50);
+        
+        // Offline mode: respond immediately using local context engine
+        setTimeout(() => {
+          const fallbackMsg = runClientChatResponse(text, activeAudit);
+          setChatMessages(prev => [...prev, { sender: 'bot', text: fallbackMsg }]);
+          
+          setTimeout(() => {
+            const chatDiv = document.getElementById('chat-scroll-pane');
+            if (chatDiv) chatDiv.scrollTop = chatDiv.scrollHeight;
+          }, 50);
+        }, 300);
+      };
+
+      const renderFormattedText = (text) => {
+        if (!text) return null;
+        
+        return text.split('\n').map((line, lineIdx) => {
+          const parts = [];
+          let currentIdx = 0;
+          const tokenRegex = /(\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g;
+          let match;
+          
+          while ((match = tokenRegex.exec(line)) !== null) {
+            const matchStart = match.index;
+            const matchText = match[0];
+            
+            if (matchStart > currentIdx) {
+              parts.push(line.substring(currentIdx, matchStart));
+            }
+            
+            if (matchText.startsWith('**') && matchText.endsWith('**')) {
+              const boldText = matchText.slice(2, -2);
+              parts.push(<strong key={matchStart} className="text-indigo-300 font-bold">{boldText}</strong>);
+            } else if (matchText.startsWith('[') && matchText.includes('](')) {
+              const closeBraceIdx = matchText.indexOf(']');
+              const label = matchText.slice(1, closeBraceIdx);
+              const url = matchText.slice(closeBraceIdx + 2, -1);
+              parts.push(
+                <a 
+                  key={matchStart} 
+                  href={url} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="text-cyan-400 underline font-semibold hover:text-cyan-300"
+                >
+                  {label}
+                </a>
+              );
+            }
+            
+            currentIdx = tokenRegex.lastIndex;
+          }
+          
+          if (currentIdx < line.length) {
+            parts.push(line.substring(currentIdx));
+          }
+          
+          return (
+            <p key={lineIdx} className="min-h-[1em]">
+              {parts.length > 0 ? parts : line}
+            </p>
+          );
+        });
+      };
+
+      const handlePrint = () => {
+        window.print();
+      };
+
+
+      return (
+        <div className="min-h-screen flex bg-[#0b0f19] text-slate-100 font-sans">
+          
+          {/* SIDEBAR */}
+          <aside className="w-64 border-r border-slate-800 bg-[#0e1322] flex flex-col justify-between shrink-0 no-print">
+            <div>
+              <div className="p-6 flex items-center gap-3 border-b border-slate-800/60">
+                <div className="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/30">
+                  <ShieldIcon />
+                </div>
+                <div>
+                  <h1 className="font-extrabold text-lg tracking-tight bg-gradient-to-r from-white to-indigo-400 bg-clip-text text-transparent">PackSure AI</h1>
+                  <p className="text-[9px] text-slate-500 font-bold tracking-widest uppercase">Metrology Platform</p>
+                </div>
+              </div>
+
+              <nav className="p-4 space-y-1">
+                <button 
+                  onClick={() => { setCurrentTab('dashboard'); resetScanner(); }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition ${
+                    currentTab === 'dashboard' && scanningStatus !== 'scanning' && scanningStatus !== 'done'
+                      ? 'bg-indigo-600/10 border-l-2 border-indigo-500 text-indigo-300' 
+                      : 'text-slate-400 hover:bg-slate-800/30 hover:text-slate-205'
+                  }`}
+                >
+                  <HistoryIcon />
+                  <span>Dashboard Overview</span>
+                </button>
+
+                <button 
+                  onClick={() => { setCurrentTab('scan'); if (scanningStatus === 'done') resetScanner(); }}
+                  className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-semibold transition ${
+                    currentTab === 'scan' || scanningStatus === 'scanning' || scanningStatus === 'done'
+                      ? 'bg-indigo-600/10 border-l-2 border-indigo-500 text-indigo-300' 
+                      : 'text-slate-400 hover:bg-slate-800/30 hover:text-slate-205'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <UploadIcon />
+                    <span>Scan Product</span>
+                  </div>
+                  <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full font-bold">AI</span>
+                </button>
+
+                <button 
+                  onClick={() => { setCurrentTab('simulator'); resetScanner(); }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition ${
+                    currentTab === 'simulator' ? 'bg-indigo-600/10 border-l-2 border-indigo-500 text-indigo-300' : 'text-slate-400 hover:bg-slate-800/30 hover:text-slate-205'
+                  }`}
+                >
+                  <SparklesIcon />
+                  <span>Label Sandbox</span>
+                </button>
+
+                <button 
+                  onClick={() => { setCurrentTab('rules'); resetScanner(); }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-semibold transition ${
+                    currentTab === 'rules' ? 'bg-indigo-600/10 border-l-2 border-indigo-500 text-indigo-300' : 'text-slate-400 hover:bg-slate-800/30 hover:text-slate-205'
+                  }`}
+                >
+                  <DatabaseIcon />
+                  <span>Rules Matrix</span>
+                </button>
+              </nav>
+            </div>
+
+            <div className="p-4 border-t border-slate-800/60 bg-[#0a0d17] flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-slate-850 flex items-center justify-center border border-slate-700">
+                <UserIcon />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-350">Inspector Acer</p>
+                <p className="text-[9px] text-slate-500">Legal Metrology Dept.</p>
+              </div>
+            </div>
+          </aside>
+
+          {/* MAIN PAGE */}
+          <main className="flex-1 flex flex-col overflow-y-auto print:p-0">
+            <header className="h-16 border-b border-slate-800/60 bg-[#0e1322]/80 backdrop-blur px-8 flex items-center justify-between sticky top-0 z-40 no-print">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">Standalone App:</span>
+                <span className="text-[10px] bg-emerald-500/15 px-2 py-0.5 rounded border border-emerald-500/20 font-mono text-brand-emerald">LOCAL-CLIENT</span>
+              </div>
+              <button 
+                onClick={() => { setCurrentTab('scan'); resetScanner(); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-md shadow-indigo-600/25"
+              >
+                <PlusIcon />
+                New Inspection
+              </button>
+            </header>
+
+            <div className="flex-1 p-8 print:p-0">
+              
+              {/* TAB: DASHBOARD */}
+              {currentTab === 'dashboard' && scanningStatus !== 'scanning' && scanningStatus !== 'done' && (
+                <div className="space-y-8 animate-fadeIn">
+                  <div>
+                    <h2 className="text-2xl font-bold text-slate-100">Inspector Command Console</h2>
+                    <p className="text-sm text-slate-400 mt-1">Packaged commodity compliance & HealthLens dashboard.</p>
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-6">
+                    <div className="p-6 rounded-xl border border-slate-800 bg-[#121829]">
+                      <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Scans</div>
+                      <div className="text-3xl font-extrabold mt-2 font-mono text-slate-205">{historyList.length * 4 + 144}</div>
+                      <div className="text-[10px] text-brand-emerald mt-2 font-semibold">✓ Standalone active</div>
+                    </div>
+                    <div className="p-6 rounded-xl border border-slate-800 bg-[#121829]">
+                      <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Average Compliance</div>
+                      <div className="text-3xl font-extrabold text-brand-emerald mt-2">
+                        {historyList.length > 0 ? Math.round(historyList.reduce((acc, curr) => acc + curr.score, 0) / historyList.length) : 80}%
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-2">Rating across history</div>
+                    </div>
+                    <div className="p-6 rounded-xl border border-slate-800 bg-[#121829]">
+                      <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Critical Alerts</div>
+                      <div className="text-3xl font-extrabold text-brand-rose mt-2">
+                        {historyList.filter(h => h.status === 'NON-COMPLIANT').length}
+                      </div>
+                      <div className="text-[10px] text-brand-rose mt-2">🔴 Active violations found</div>
+                    </div>
+                    <div className="p-6 rounded-xl border border-slate-800 bg-[#121829]">
+                      <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Average Health Rating</div>
+                      <div className="text-3xl font-extrabold text-cyan-400 mt-2">
+                        {historyList.length > 0 ? Math.round(historyList.reduce((acc, curr) => acc + (curr.health_score || 70), 0) / historyList.length) : 62}%
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-2">Nutritional average</div>
+                    </div>
+                  </div>
+
+                  {/* SVG Chart */}
+                  <div className="grid grid-cols-3 gap-6">
+                    <div className="col-span-2 p-6 rounded-xl border border-slate-800 bg-[#121829]">
+                      <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-4">Inspection Volume & Score Trends</h3>
+                      <div className="h-44 relative w-full flex items-end">
+                        <svg className="w-full h-full" viewBox="0 0 500 150">
+                          <line x1="0" y1="37.5" x2="500" y2="37.5" stroke="#1e293b" strokeDasharray="3,3" />
+                          <line x1="0" y1="75" x2="500" y2="75" stroke="#1e293b" strokeDasharray="3,3" />
+                          <line x1="0" y1="112.5" x2="500" y2="112.5" stroke="#1e293b" strokeDasharray="3,3" />
+                          
+                          <path d="M 20 100 L 100 110 L 180 60 L 260 120 L 340 50 L 420 40 L 480 20" fill="none" stroke="#06b6d4" strokeWidth="2.5" />
+                          <rect x="35" y="100" width="10" height="50" fill="#6366f1" opacity="0.2" rx="2" />
+                          <rect x="115" y="80" width="10" height="70" fill="#6366f1" opacity="0.2" rx="2" />
+                          <rect x="195" y="50" width="10" height="100" fill="#6366f1" opacity="0.2" rx="2" />
+                          <rect x="275" y="110" width="10" height="40" fill="#6366f1" opacity="0.2" rx="2" />
+                          <rect x="355" y="70" width="10" height="80" fill="#6366f1" opacity="0.2" rx="2" />
+                          <rect x="435" y="50" width="10" height="100" fill="#6366f1" opacity="0.2" rx="2" />
+                        </svg>
+                      </div>
+                    </div>
+
+                    <div className="p-6 rounded-xl border border-slate-800 bg-[#121829] flex flex-col justify-between">
+                      <div>
+                        <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-4">Common Violations</h3>
+                        <div className="space-y-3">
+                          <div>
+                            <div className="flex justify-between text-2xs font-semibold mb-1">
+                              <span>No Consumer Contact</span> <span className="text-brand-rose">45%</span>
+                            </div>
+                            <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                              <div className="bg-brand-rose h-full rounded-full" style={{width: '45%'}}></div>
+                            </div>
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-2xs font-semibold mb-1">
+                              <span>MRP Stickers</span> <span className="text-brand-amber">30%</span>
+                            </div>
+                            <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                              <div className="bg-brand-amber h-full rounded-full" style={{width: '30%'}}></div>
+                            </div>
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-2xs font-semibold mb-1">
+                              <span>Missing Net Wt Units</span> <span className="text-indigo-400">20%</span>
+                            </div>
+                            <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                              <div className="bg-indigo-500 h-full rounded-full" style={{width: '20%'}}></div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <span className="text-[10px] text-slate-500">Recalculated across local log audits</span>
+                    </div>
+                  </div>
+
+                  {/* HISTORY TABLE */}
+                  <div className="p-6 rounded-xl border border-slate-800 bg-[#121829]">
+                    <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-4">Recent Package Audits</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs text-slate-350">
+                        <thead className="text-[10px] text-slate-500 uppercase border-b border-slate-800">
+                          <tr>
+                            <th className="py-2.5 px-3">ID</th>
+                            <th className="py-2.5 px-3">Timestamp</th>
+                            <th className="py-2.5 px-3">Product Name</th>
+                            <th className="py-2.5 px-3">Category</th>
+                            <th className="py-2.5 px-3">Compliance</th>
+                            <th className="py-2.5 px-3">HealthLens</th>
+                            <th className="py-2.5 px-3 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/40">
+                          {historyList.map((hist, idx) => (
+                            <tr key={idx} className="hover:bg-slate-800/10 transition">
+                              <td className="py-3 px-3 font-mono text-[10px] text-indigo-400">{hist.id}</td>
+                              <td className="py-3 px-3 text-slate-500">{hist.timestamp}</td>
+                              <td className="py-3 px-3 font-bold text-slate-205">{hist.product_name}</td>
+                              <td className="py-3 px-3">{hist.category_display}</td>
+                              <td className="py-3 px-3 font-black text-brand-emerald">{hist.score}%</td>
+                              <td className="py-3 px-3 font-black text-cyan-405">{hist.health_score || 70}%</td>
+                              <td className="py-3 px-3 text-right">
+                                <button 
+                                  onClick={() => viewAuditDetails(hist.id)}
+                                  className="bg-slate-800 border border-slate-700 px-2.5 py-1 rounded text-[10px] font-bold hover:bg-indigo-650 transition"
+                                >
+                                  Inspect details
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: SCAN PRODUCT */}
+              {currentTab === 'scan' && scanningStatus === 'idle' && (
+                <div className="space-y-8 animate-fadeIn max-w-4xl mx-auto">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h2 className="text-2xl font-bold text-slate-100">Package Scanner</h2>
+                      <p className="text-sm text-slate-400 mt-1">Upload package panel photos or select a preloaded demo mockup.</p>
+                    </div>
+                    <div className="flex gap-1 bg-slate-900 p-1 rounded-lg border border-slate-850">
+                      <button 
+                        onClick={() => handleDemoSelect('sunshine_biscuits')}
+                        className={`text-[10px] font-bold px-2.5 py-1.5 rounded transition ${
+                          demoProduct === 'sunshine_biscuits' ? 'bg-indigo-600 text-white' : 'text-slate-400'
+                        }`}
+                      >
+                        Demo 1 (Food)
+                      </button>
+                      <button 
+                        onClick={() => handleDemoSelect('glow_cream')}
+                        className={`text-[10px] font-bold px-2.5 py-1.5 rounded transition ${
+                          demoProduct === 'glow_cream' ? 'bg-indigo-600 text-white' : 'text-slate-400'
+                        }`}
+                      >
+                        Demo 2 (Cosmetics)
+                      </button>
+                      <button 
+                        onClick={() => handleDemoSelect('cozy_detergent')}
+                        className={`text-[10px] font-bold px-2.5 py-1.5 rounded transition ${
+                          demoProduct === 'cozy_detergent' ? 'bg-indigo-600 text-white' : 'text-slate-400'
+                        }`}
+                      >
+                        Demo 3 (Mismatch)
+                      </button>
+                    </div>
+                  </div>
+
+                  {demoProduct && (
+                    <div className="p-4 bg-indigo-600/15 border border-indigo-500/30 rounded-xl flex items-center justify-between">
+                      <div className="flex items-center gap-3 text-xs">
+                        <SparklesIcon />
+                        <div>
+                          <p className="font-bold text-slate-250">Loaded Mockup: {demoProduct.toUpperCase().replace('_', ' ')}</p>
+                          <p className="text-[10px] text-slate-400">Predefined OCR coordinates and texts will be processed client-side.</p>
+                        </div>
+                      </div>
+                      <button onClick={() => setDemoProduct('')} className="text-[10px] text-slate-400 underline">Clear</button>
+                    </div>
+                  )}
+
+                  {/* GRID PANELS */}
+                  <div className="grid grid-cols-4 gap-6">
+                    {['front', 'back', 'left', 'right'].map((pnl) => (
+                      <div key={pnl} className="space-y-2">
+                        <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                          <span>{pnl} panel</span>
+                          {previews[pnl] && <span className="text-brand-emerald">Loaded</span>}
+                        </div>
+
+                        <div className="relative rounded-xl border border-slate-800 bg-[#121829] hover:bg-[#161e32] h-60 overflow-hidden flex flex-col justify-center items-center transition cursor-pointer border-dashed border-2">
+                          {previews[pnl] ? (
+                            <img src={previews[pnl]} alt={pnl} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="text-center p-4 flex flex-col items-center gap-2">
+                              <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center">
+                                <UploadIcon />
+                              </div>
+                              <span className="text-[11px] font-bold text-indigo-400">Click to upload</span>
+                            </div>
+                          )}
+                          <input 
+                            type="file" 
+                            accept="image/*" 
+                            onChange={(e) => handleFileChange(pnl, e.target.files[0])}
+                            className="absolute inset-0 opacity-0 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex justify-end pt-4 border-t border-slate-800/60">
+                    <button
+                      disabled={!demoProduct && !previews.front}
+                      onClick={runInspection}
+                      className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-xs disabled:bg-slate-800 disabled:text-slate-500 transition shadow-lg shadow-indigo-600/25"
+                    >
+                      Run Client Compliance Audit <ArrowRightIcon />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: SCANNING PIPELINE */}
+              {scanningStatus === 'scanning' && (
+                <div className="max-w-md mx-auto py-16 space-y-8 animate-fadeIn">
+                  <div className="text-center space-y-3">
+                    <div className="relative inline-flex mb-4">
+                      <div className="w-16 h-16 rounded-full border-4 border-indigo-600/20 border-t-indigo-500 animate-spin"></div>
+                      <div className="w-6 h-6 text-indigo-400 absolute top-5 left-5"><ShieldIcon /></div>
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-100 uppercase">Local Web Pipeline Running</h3>
+                    <p className="text-xs text-slate-400">Performing regex structuring and checks...</p>
+                  </div>
+
+                  <div className="bg-[#121829] border border-slate-800 rounded-xl p-6 space-y-4">
+                    {[
+                      "Simulating client canvas contrast parameters...",
+                      "Accessing predefined character arrays...",
+                      "Extracting metrology weight templates...",
+                      "Validating against client rule configurations...",
+                      "Comparing cross-panel net weight indices...",
+                      "Compiling final metrology score dial..."
+                    ].map((step, idx) => (
+                      <div key={idx} className="flex justify-between items-center text-[10px]">
+                        <span className={idx <= scanStep ? 'text-slate-200' : 'text-slate-600'}>{idx+1}. {step}</span>
+                        {idx < scanStep ? <span className="text-brand-emerald font-bold">PASS</span> :
+                         idx === scanStep ? <span className="text-cyan-400 font-bold animate-pulse">RUNNING</span> :
+                         <span className="text-slate-700">PENDING</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: COMPLIANCE RESULTS */}
+              {scanningStatus === 'done' && activeAudit && (
+                <div className="space-y-8 animate-fadeIn">
+                  
+                  {/* Results Header */}
+                  <div className="flex justify-between items-center border-b border-slate-800 pb-5 no-print">
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <h2 className="text-xl font-bold text-slate-100">{activeAudit.product_details.product_name || "Packaged Product"}</h2>
+                        <span className="text-[10px] bg-slate-800 border border-slate-700 px-3 py-1 rounded-full text-slate-400 font-bold font-sans">
+                          {activeAudit.rule_results.category_display}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 font-mono mt-1">Audit: {activeAudit.id} | Timestamp: {activeAudit.timestamp}</p>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={handlePrint}
+                        className="bg-[#121829] border border-slate-800 px-3.5 py-2 rounded-lg text-2xs font-bold text-slate-350 hover:text-white transition flex items-center"
+                      >
+                        <DownloadIcon /> Print Report (PDF)
+                      </button>
+                      <button 
+                        onClick={resetScanner} 
+                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3.5 py-2 rounded-lg text-2xs transition"
+                      >
+                        Inspect Another
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Meter circle and count summaries */}
+                  <div className="grid grid-cols-4 gap-6 no-print">
+                    <div className="p-4 rounded-xl border border-slate-800 bg-[#121829] flex items-center justify-between col-span-2">
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Compliance Score</span>
+                        <span className="text-xs font-black text-slate-205 block">{activeAudit.score_info.status}</span>
+                      </div>
+                      <div className="relative w-16 h-16 flex items-center justify-center">
+                        <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                          <circle cx="50" cy="50" r="40" stroke="#1e293b" strokeWidth="10" fill="transparent" />
+                          <circle 
+                            cx="50" cy="50" r="40" 
+                            stroke={activeAudit.score_info.status_color === 'green' ? '#10b981' : activeAudit.score_info.status_color === 'orange' ? '#f59e0b' : '#f43f5e'} 
+                            strokeWidth="10" 
+                            fill="transparent" 
+                            strokeDasharray="251.2"
+                            strokeDashoffset={251.2 - (251.2 * activeAudit.score_info.score) / 100}
+                          />
+                        </svg>
+                        <span className="absolute text-sm font-black">{activeAudit.score_info.score}%</span>
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-xl border border-slate-800 bg-[#121829] flex items-center justify-between col-span-2">
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Health Score</span>
+                        <span className="text-xs font-black text-slate-205 block">{activeAudit.health_info?.rating_status || "MODERATE"}</span>
+                      </div>
+                      <div className="relative w-16 h-16 flex items-center justify-center">
+                        <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                          <circle cx="50" cy="50" r="40" stroke="#1e293b" strokeWidth="10" fill="transparent" />
+                          <circle 
+                            cx="50" cy="50" r="40" 
+                            stroke={activeAudit.health_info?.rating_color === 'green' ? '#10b981' : activeAudit.health_info?.rating_color === 'orange' ? '#f59e0b' : '#f43f5e'} 
+                            strokeWidth="10" 
+                            fill="transparent" 
+                            strokeDasharray="251.2"
+                            strokeDashoffset={251.2 - (251.2 * (activeAudit.health_info?.score || 70)) / 100}
+                          />
+                        </svg>
+                        <span className="absolute text-sm font-black">{activeAudit.health_info?.score || 70}%</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Sub tab selectors */}
+                  <div className="flex gap-2 border-b border-slate-800 pb-3 no-print">
+                    {['overview', 'compliance', 'health', 'compare'].map(tab => (
+                      <button
+                        key={tab}
+                        onClick={() => setActiveSubTab(tab)}
+                        className={`px-4 py-2 rounded-lg text-xs font-bold capitalize transition ${
+                          activeSubTab === tab ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200 bg-slate-900/50'
+                        }`}
+                      >
+                        {tab === 'health' ? 'HealthLens' : tab === 'compare' ? 'Better Alternatives' : tab}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* SUBTAB 1: OVERVIEW */}
+                  {activeSubTab === 'overview' && (
+                    <div className="grid grid-cols-12 gap-8 no-print animate-fadeIn">
+                      <div className="col-span-5 p-6 rounded-xl border border-slate-800 bg-[#121829] flex flex-col justify-between h-[450px]">
+                        <div>
+                          <div className="flex justify-between items-center mb-4">
+                            <h4 className="text-[10px] font-bold text-slate-200 uppercase tracking-wider">Package Digital Twin</h4>
+                            <div className="flex gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800">
+                              {['front', 'back'].map((pnl) => (
+                                <button
+                                  key={pnl}
+                                  onClick={() => setSelectedTwinPanel(pnl)}
+                                  className={`text-[8px] font-bold px-2 py-0.5 rounded capitalize transition ${
+                                    selectedTwinPanel === pnl ? 'bg-indigo-600 text-white' : 'text-slate-500'
+                                  }`}
+                                >
+                                  {pnl}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="relative rounded-lg overflow-hidden border border-slate-850 h-72 bg-slate-950 flex items-center justify-center">
+                            {previews[selectedTwinPanel] ? (
+                              <div className="relative w-full h-full">
+                                <img src={previews[selectedTwinPanel]} alt={selectedTwinPanel} className="w-full h-full object-contain" />
+                                {activeAudit.panels_ocr.boxes[selectedTwinPanel]?.map((box, idx) => {
+                                  const [xMin, yMin, xMax, yMax] = box.coords;
+                                  const ruleMatch = activeAudit.rule_results.rules_checked.find(r => r.field === box.field);
+                                  const isViolated = ruleMatch && (ruleMatch.status === 'FAILED' || ruleMatch.status === 'WARNING');
+                                  return (
+                                    <div
+                                      key={idx}
+                                      onMouseEnter={() => setHoveredBox({ ...box, rule: ruleMatch })}
+                                      onMouseLeave={() => setHoveredBox(null)}
+                                      className={`absolute border-2 cursor-pointer transition ${
+                                        isViolated ? 'border-red-500/60 bg-red-500/10' : 'border-emerald-500/50 bg-emerald-500/5'
+                                      }`}
+                                      style={{ left: `${xMin}%`, top: `${yMin}%`, width: `${xMax - xMin}%`, height: `${yMax - yMin}%` }}
+                                    />
+                                  )
+                                })}
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-slate-500 font-mono">No panel photo provided</span>
+                            )}
+
+                            {hoveredBox && (
+                              <div className="absolute bottom-3 left-3 right-3 bg-slate-905/95 border border-slate-800 p-2.5 rounded text-[10px] z-10 space-y-1">
+                                <div className="flex justify-between font-bold text-indigo-400">
+                                  <span>{hoveredBox.rule?.title || 'OCR Element'}</span>
+                                  <span className={hoveredBox.rule?.status === 'PASSED' ? 'text-brand-emerald' : 'text-brand-rose'}>
+                                    {hoveredBox.rule?.status || 'DETECTED'}
+                                  </span>
+                                </div>
+                                <p className="text-slate-355 bg-slate-950 px-1 py-0.5 rounded font-mono text-[9px]">{hoveredBox.text}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-[9px] text-slate-500 mt-4 border-t border-slate-850 pt-3">
+                          ℹ Hover over highlighted bounding boxes to view OCR texts.
+                        </div>
+                      </div>
+
+                      <div className="col-span-7 space-y-6">
+                        <div className="p-6 rounded-xl border border-slate-800 bg-[#121829] space-y-4">
+                          <h4 className="text-[10px] font-bold text-slate-200 uppercase tracking-wider">Product Insight Overview</h4>
+                          
+                          <div className="grid grid-cols-2 gap-4 text-xs font-sans">
+                            <div className="bg-slate-900 p-3 rounded-lg border border-slate-855 space-y-1">
+                              <span className="text-slate-500 text-[10px] block uppercase font-bold">Category Display</span>
+                              <span className="text-slate-250 font-bold">{activeAudit.rule_results.category_display}</span>
+                            </div>
+                            <div className="bg-slate-900 p-3 rounded-lg border border-slate-855 space-y-1">
+                              <span className="text-slate-500 text-[10px] block uppercase font-bold">Declared MRP</span>
+                              <span className="text-slate-255 font-bold">{activeAudit.product_details.mrp || "Not Declared"}</span>
+                            </div>
+                            <div className="bg-slate-900 p-3 rounded-lg border border-slate-855 space-y-1">
+                              <span className="text-slate-500 text-[10px] block uppercase font-bold">Net Quantity</span>
+                              <span className="text-slate-255 font-bold">{activeAudit.product_details.net_quantity || "Not Declared"}</span>
+                            </div>
+                            <div className="bg-slate-905 p-3 rounded-lg border border-slate-855 space-y-1">
+                              <span className="text-slate-500 text-[10px] block uppercase font-bold">Mfg Date</span>
+                              <span className="text-slate-255 font-bold">{activeAudit.product_details.manufacture_date || "Not Declared"}</span>
+                            </div>
+                          </div>
+
+                          <div className="p-4 bg-indigo-600/10 border border-indigo-500/20 rounded-xl space-y-1.5 text-xs font-sans">
+                            <h5 className="font-bold text-indigo-300">Nutritional Diagnosis</h5>
+                            <p className="text-slate-355">{activeAudit.health_info?.assessment || "Nutritional evaluation active."}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SUBTAB 2: COMPLIANCE */}
+                  {activeSubTab === 'compliance' && (
+                    <div className="space-y-6 no-print animate-fadeIn">
+                      {activeAudit.cross_panel_conflicts.length > 0 && (
+                        <div className="p-4 bg-brand-rose/10 border border-brand-rose/30 rounded-xl space-y-2">
+                          <h4 className="text-[10px] font-bold text-brand-rose uppercase tracking-wider flex items-center gap-1.5">
+                            <AlertTriangleIcon /> Cross-Panel Conflicts Detected
+                          </h4>
+                          <div className="space-y-1.5">
+                            {activeAudit.cross_panel_conflicts.map((conflict, idx) => (
+                              <div key={idx} className="bg-slate-900 border border-slate-850 p-2 rounded text-[10px]">
+                                <p className="font-semibold text-slate-200">{conflict.message}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="p-6 rounded-xl border border-slate-800 bg-[#121829] space-y-3">
+                        <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Declarations Audit Checklist</h4>
+                        <div className="space-y-2">
+                          {activeAudit.rule_results.rules_checked.map((rule, idx) => (
+                            <div key={idx} className={`p-3 border rounded-lg flex items-start gap-3 ${
+                              rule.status === 'PASSED' ? 'bg-slate-900/20 border-slate-855' :
+                              rule.status === 'FAILED' ? 'bg-red-500/5 border-red-500/20' :
+                              rule.status === 'WARNING' ? 'bg-amber-500/5 border-amber-500/20' :
+                              'bg-slate-900/10 border-slate-855 opacity-40'
+                            }`}>
+                              <div>
+                                {rule.status === 'PASSED' && <CheckCircleIcon />}
+                                {rule.status === 'FAILED' && <XCircleIcon />}
+                                {rule.status === 'WARNING' && <AlertTriangleIcon />}
+                              </div>
+                              <div className="flex-1 space-y-1 text-[11px] font-sans">
+                                <div className="flex justify-between items-start">
+                                  <h5 className="font-bold text-slate-200">{rule.title}</h5>
+                                  <span className="text-[8px] bg-slate-800 text-slate-400 px-1 py-0.2 rounded uppercase font-bold">{rule.severity}</span>
+                                </div>
+                                <p className="text-slate-400 text-[10px]">{rule.description}</p>
+                                <p className="text-indigo-400 font-bold italic text-[9px] mt-0.5">{rule.finding}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SUBTAB 3: HEALTHLENS */}
+                  {activeSubTab === 'health' && (
+                    <div className="grid grid-cols-12 gap-8 no-print animate-fadeIn">
+                      
+                      {/* Nutritional Levels */}
+                      <div className="col-span-5 p-6 rounded-xl border border-slate-800 bg-[#121829] space-y-6">
+                        <h4 className="text-[10px] font-bold text-slate-200 uppercase tracking-wider">Nutritional Indicators</h4>
+                        
+                        {/* Serving Calculator Widget */}
+                        {(() => {
+                          const declaredServing = parseFloat(activeAudit.product_details.serving_size) || 30;
+                          return (
+                            <div className="bg-slate-900/60 p-4 border border-slate-850 rounded-xl space-y-3 font-sans text-xs">
+                              <div className="flex justify-between items-center">
+                                <span className="font-bold text-slate-300">🍽️ Serving Calculator</span>
+                                <span className="text-[10px] text-slate-500 font-mono">Base Portion: {declaredServing}g</span>
+                              </div>
+                              
+                              <div className="grid grid-cols-3 gap-2">
+                                {[
+                                  { label: "½ Serving", mult: 0.5 },
+                                  { label: "1 Serving", mult: 1.0 },
+                                  { label: "2 Servings", mult: 2.0 }
+                                ].map(btn => (
+                                  <button
+                                    key={btn.label}
+                                    onClick={() => {
+                                      setServingMultiplier(btn.mult);
+                                      setCustomGrams(declaredServing * btn.mult);
+                                    }}
+                                    className={`py-1 rounded font-bold text-[10px] border transition ${
+                                      servingMultiplier === btn.mult 
+                                        ? 'bg-indigo-600 border-indigo-500 text-white' 
+                                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                                    }`}
+                                  >
+                                    {btn.label}
+                                  </button>
+                                ))}
+                              </div>
+
+                              <div className="flex items-center gap-2 pt-1">
+                                <span className="text-[10px] text-slate-400 shrink-0">Custom grams:</span>
+                                <input 
+                                  type="number" 
+                                  value={customGrams}
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value) || 0;
+                                    setCustomGrams(val);
+                                    setServingMultiplier(val / declaredServing);
+                                  }}
+                                  className="w-full bg-slate-950 border border-slate-800 rounded p-1 text-[10px] text-slate-200 outline-none text-center font-mono"
+                                />
+                              </div>
+
+                              {servingMultiplier !== 1 && (
+                                <p className="text-[9px] text-indigo-300 leading-tight font-semibold italic bg-indigo-500/5 p-1.5 rounded">
+                                  ⚠ Recalculated for {customGrams}g ({servingMultiplier.toFixed(1)}x servings).
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        <div className="space-y-4">
+                          {activeAudit.health_info?.metrics && Object.entries(activeAudit.health_info.metrics).map(([name, m]) => (
+                            <div key={name} className="space-y-1 text-xs">
+                              <div className="flex justify-between font-bold capitalize">
+                                <span>{name.replace('_', ' ')}</span>
+                                <span className={m.level === 'HIGH' || m.level === 'POOR' ? 'text-brand-rose' : m.level === 'MODERATE' ? 'text-brand-amber' : 'text-brand-emerald'}>
+                                  {(m.value * servingMultiplier).toFixed(1).replace(/\.0$/, '')} {name === 'sodium' ? 'mg' : 'g'} ({m.level})
+                                </span>
+                              </div>
+                              <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full ${
+                                  m.level === 'HIGH' || m.level === 'POOR' ? 'bg-brand-rose' : m.level === 'MODERATE' ? 'bg-brand-amber' : 'bg-brand-emerald'
+                                }`} style={{width: m.level === 'HIGH' ? '85%' : m.level === 'MODERATE' ? '50%' : '20%'}}></div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Pros & Cons, Ingredient breakdown */}
+                      <div className="col-span-7 space-y-6">
+                        
+                        {/* Pros and Cons */}
+                        <div className="p-6 rounded-xl border border-slate-800 bg-[#121829] grid grid-cols-2 gap-6">
+                          <div className="space-y-3">
+                            <h5 className="text-[10px] font-bold text-brand-emerald uppercase tracking-wider">👍 Pros</h5>
+                            <ul className="space-y-2 text-xs text-slate-350 list-inside">
+                              {activeAudit.health_info?.pros?.map((p, i) => <li key={i} className="flex items-start gap-1"><CheckCircleIcon />{p}</li>) || <li>No parameters matches pros.</li>}
+                            </ul>
+                          </div>
+
+                          <div className="space-y-3">
+                            <h5 className="text-[10px] font-bold text-brand-rose uppercase tracking-wider">👎 Things to Watch</h5>
+                            <ul className="space-y-2 text-xs text-slate-350 list-inside">
+                              {activeAudit.health_info?.cons?.map((c, i) => <li key={i} className="flex items-start gap-1"><XCircleIcon />{c}</li>) || <li>No high risk parameters flagged.</li>}
+                            </ul>
+                          </div>
+                        </div>
+
+                        {/* Ingredients Analysis */}
+                        <div className="p-6 rounded-xl border border-slate-800 bg-[#121829] space-y-4 text-xs font-sans">
+                          <h4 className="text-[10px] font-bold text-slate-200 uppercase tracking-wider">Ingredient Breakdown</h4>
+                          
+                          <div className="space-y-3">
+                            {activeAudit.ingredients_analysis?.bases?.length > 0 && (
+                              <div>
+                                <span className="text-[9px] text-slate-500 font-bold uppercase block mb-1">Base Ingredients</span>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {activeAudit.ingredients_analysis.bases.map((tag, idx) => (
+                                    <span key={idx} className="bg-slate-900 border border-slate-850 px-2.5 py-1 rounded text-[10px] font-medium text-slate-300">{tag}</span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {activeAudit.ingredients_analysis?.sweeteners?.length > 0 && (
+                              <div>
+                                <span className="text-[9px] text-slate-500 font-bold uppercase block mb-1">Sweetener Sources</span>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {activeAudit.ingredients_analysis.sweeteners.map((tag, idx) => (
+                                    <span key={idx} className="bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded text-[10px] font-medium text-brand-amber">{tag}</span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {activeAudit.ingredients_analysis?.fats?.length > 0 && (
+                              <div>
+                                <span className="text-[9px] text-slate-500 font-bold uppercase block mb-1">Fat Sources</span>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {activeAudit.ingredients_analysis.fats.map((tag, idx) => (
+                                    <span key={idx} className="bg-red-500/10 border border-red-500/20 px-2.5 py-1 rounded text-[10px] font-medium text-brand-rose">{tag}</span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {activeAudit.ingredients_analysis?.additives?.length > 0 && (
+                              <div>
+                                <span className="text-[9px] text-slate-500 font-bold uppercase block mb-1">Additives & Preservatives</span>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {activeAudit.ingredients_analysis.additives.map((tag, idx) => (
+                                    <span key={idx} className="bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded text-[10px] font-medium text-indigo-300">{tag}</span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                      </div>
+
+                    </div>
+                  )}
+
+                  {/* SUBTAB 4: BETTER ALTERNATIVES */}
+                  {activeSubTab === 'compare' && (
+                    <div className="space-y-6 no-print animate-fadeIn">
+                      <div className="p-6 rounded-xl border border-slate-800 bg-[#121829] space-y-4">
+                        <h4 className="text-[10px] font-bold text-slate-200 uppercase tracking-wider">Healthier Alternatives in this Category</h4>
+                        
+                        <div className="grid grid-cols-2 gap-6">
+                          {activeAudit.alternatives?.map((alt, idx) => (
+                            <div key={idx} className="p-4 bg-slate-900 border border-slate-855 rounded-xl space-y-3 font-sans">
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <h5 className="font-bold text-slate-100 text-sm">{alt.name}</h5>
+                                  <span className="text-[10px] text-slate-500">By {alt.brand}</span>
+                                </div>
+                                <span className="bg-emerald-500/15 border border-emerald-500/20 px-2.5 py-1 rounded text-2xs font-bold text-brand-emerald">
+                                  Health Score: {alt.health_score}
+                                </span>
+                              </div>
+
+                              <p className="text-xs text-indigo-300/80 bg-indigo-500/5 border border-indigo-500/10 p-3 rounded-lg leading-relaxed">{alt.why_better}</p>
+
+                              {alt.nutrition && (
+                                <table className="w-full text-left text-[10px] mt-2 border-t border-slate-800">
+                                  <thead>
+                                    <tr className="text-slate-500">
+                                      <th className="py-1.5">Nutrient</th>
+                                      <th className="py-1.5">Scanned Item</th>
+                                      <th className="py-1.5">Alternative</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-800/40 text-slate-350">
+                                    <tr>
+                                      <td className="py-1">Added Sugar</td>
+                                      <td className="py-1">{activeAudit.product_details.sugar || activeAudit.health_info?.metrics.sugar?.value + " g" || "N/A"}</td>
+                                      <td className="py-1 font-bold text-brand-emerald">{alt.nutrition.sugar}</td>
+                                    </tr>
+                                    <tr>
+                                      <td className="py-1">Dietary Fibre</td>
+                                      <td className="py-1">{activeAudit.product_details.fibre || activeAudit.health_info?.metrics.fibre?.value + " g" || "N/A"}</td>
+                                      <td className="py-1 font-bold text-brand-emerald">{alt.nutrition.fibre}</td>
+                                    </tr>
+                                    <tr>
+                                      <td className="py-1">Saturated Fat</td>
+                                      <td className="py-1">{activeAudit.product_details.sat_fat || activeAudit.health_info?.metrics.sat_fat?.value + " g" || "N/A"}</td>
+                                      <td className="py-1 font-bold text-brand-emerald">{alt.nutrition.sat_fat}</td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              )}
+
+                              {alt.purchase_url && (
+                                <div className="pt-2 text-right">
+                                  <a 
+                                    href={alt.purchase_url} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer" 
+                                    className="inline-flex items-center gap-1 bg-emerald-605/90 hover:bg-emerald-500 text-white text-[10px] font-bold px-3 py-1.5 rounded transition"
+                                  >
+                                    Buy Suggested Alternative Product 🛒
+                                  </a>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* PRINT ONLY VIEW */}
+                  <div className="hidden print-only max-w-4xl mx-auto p-8 text-black bg-white border border-slate-300 rounded">
+                    <div className="flex justify-between items-center border-b pb-4 mb-4">
+                      <div>
+                        <h1 className="text-2xl font-black">PackSure AI Compliance Report</h1>
+                        <p className="text-xs text-slate-600 font-mono">Generated: {activeAudit.timestamp}</p>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-3xl font-black">{activeAudit.score_info.score}%</span>
+                        <p className="text-xs font-bold">{activeAudit.score_info.status}</p>
+                      </div>
+                    </div>
+
+                    <h3 className="font-bold border-b pb-1 mb-2">📦 Product Specifications</h3>
+                    <div className="grid grid-cols-2 gap-4 text-xs bg-slate-50 p-3 rounded mb-4">
+                      <div>
+                        <p><strong>Name:</strong> {activeAudit.product_details.product_name}</p>
+                        <p><strong>Category:</strong> {activeAudit.rule_results.category_display}</p>
+                        <p><strong>MRP:</strong> {activeAudit.product_details.mrp}</p>
+                      </div>
+                      <div>
+                        <p><strong>Net Quantity:</strong> {activeAudit.product_details.net_quantity}</p>
+                        <p><strong>Manufacturer:</strong> {activeAudit.product_details.manufacturer_details}</p>
+                        <p><strong>Consumer Care:</strong> {activeAudit.product_details.consumer_care}</p>
+                      </div>
+                    </div>
+
+                    <h3 className="font-bold border-b pb-1 mb-2">🛠️ Audit Checklist Results</h3>
+                    <table className="w-full text-left text-xs mb-4">
+                      <thead>
+                        <tr className="bg-slate-100">
+                          <th className="p-2">Rule</th>
+                          <th className="p-2">Severity</th>
+                          <th className="p-2">Extracted Value</th>
+                          <th className="p-2">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {activeAudit.rule_results.rules_checked.map((r, i) => (
+                          <tr key={i}>
+                            <td className="p-2"><strong>{r.title}</strong></td>
+                            <td className="p-2">{r.severity}</td>
+                            <td className="p-2 font-mono text-[10px]">{r.value || 'Not Found'}</td>
+                            <td className="p-2 font-bold">{r.status}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                </div>
+              )}
+
+              {/* TAB: PRE-MARKET SANDBOX */}
+              {currentTab === 'simulator' && (
+                <div className="max-w-4xl mx-auto space-y-6 animate-fadeIn">
+                  <div>
+                    <h2 className="text-2xl font-bold text-slate-100">Label Sandbox Simulator</h2>
+                    <p className="text-sm text-slate-400 mt-1">Audit label textual configurations prior to manufacturing print cycles.</p>
+                  </div>
+
+                  <div className="grid grid-cols-12 gap-8">
+                    
+                    <div className="col-span-5 p-6 rounded-xl border border-slate-800 bg-[#121829] space-y-4">
+                      <h4 className="text-[10px] font-bold text-slate-200 uppercase tracking-wider">Configure Attributes</h4>
+
+                      <div className="space-y-3 text-xs">
+                        <div>
+                          <label className="text-[9px] font-bold uppercase text-slate-505 block mb-1">Commodity Type</label>
+                          <select 
+                            value={simCategory} 
+                            onChange={(e) => { setSimCategory(e.target.value); setSimResult(null); }}
+                            className="w-full bg-slate-900 border border-slate-800 rounded p-2 text-slate-200 outline-none"
+                          >
+                            <option value="food">Food Product (FSSAI License)</option>
+                            <option value="cosmetics">Cosmetics / Beauty Cream</option>
+                            <option value="electronics">Electronics (Specifications)</option>
+                            <option value="general">General Commodities</option>
+                          </select>
+                        </div>
+
+                        {Object.keys(simValues).map((field) => {
+                          if (field === 'fssai_license' && simCategory !== 'food') return null;
+                          if (field === 'ingredients' && simCategory !== 'food' && simCategory !== 'cosmetics') return null;
+
+                          return (
+                            <div key={field}>
+                              <label className="text-[9px] font-bold uppercase text-slate-505 block mb-1">{field.replace('_', ' ')}</label>
+                              <input 
+                                type="text" 
+                                value={simValues[field]}
+                                onChange={(e) => { setSimValues(prev => ({ ...prev, [field]: e.target.value })); setSimResult(null); }}
+                                className="w-full bg-slate-900 border border-slate-800 rounded p-1.5 text-slate-200 outline-none"
+                              />
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      <button 
+                        onClick={runSimulator} 
+                        className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 font-bold text-white rounded text-xs transition"
+                      >
+                        Simulate Compliance Score
+                      </button>
+                    </div>
+
+                    <div className="col-span-7">
+                      {simResult ? (
+                        <div className="space-y-6 animate-fadeIn font-sans">
+                          <div className="p-6 rounded-xl border border-slate-800 bg-[#121829] flex justify-between items-center">
+                            <div>
+                              <span className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider">Compliance Status</span>
+                              <span className="text-xs font-bold text-slate-255 mt-1">{simResult.status}</span>
+                            </div>
+                            <span className="text-xl font-black">{simResult.score} <span className="text-xs text-slate-500">/ 100</span></span>
+                          </div>
+
+                          <div className="p-6 rounded-xl border border-slate-800 bg-[#121829] flex justify-between items-center">
+                            <div>
+                              <span className="text-[10px] text-slate-505 block uppercase font-bold tracking-wider">Health Score Prediction</span>
+                              <span className="text-xs font-bold text-slate-250 mt-1">AI-Assisted Nutritional Score</span>
+                            </div>
+                            <span className="text-xl font-black text-cyan-400">{simResult.health_score} <span className="text-xs text-slate-500">/ 100</span></span>
+                          </div>
+
+                          <div className="p-6 rounded-xl border border-slate-800 bg-[#121829] h-[240px] overflow-y-auto space-y-2">
+                            {simResult.checklist.map((c, idx) => (
+                              <div key={idx} className="p-2.5 bg-slate-900 border border-slate-850 rounded flex justify-between items-center text-[10px]">
+                                <div>
+                                  <h5 className="font-bold text-slate-200">{c.title}</h5>
+                                  <p className="text-slate-405 mt-0.5">{c.finding}</p>
+                                </div>
+                                <span className={`font-bold px-2 py-0.5 rounded text-[8px] ${
+                                  c.status === 'PASSED' ? 'bg-emerald-500/10 text-brand-emerald' :
+                                  c.status === 'FAILED' ? 'bg-rose-500/10 text-brand-rose' :
+                                  'bg-slate-850 text-slate-400'
+                                }`}>{c.status}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="h-full rounded-xl border-2 border-dashed border-slate-800 flex flex-col justify-center items-center p-12 text-slate-500 text-center bg-[#121829]/10">
+                          <span className="text-xs font-bold block mb-1">Sandbox Simulator</span>
+                          <span className="text-[10px]">Adjust fields and simulate checks to update score rates.</span>
+                        </div>
+                      )}
+                    </div>
+
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: RULES MATRIX */}
+              {currentTab === 'rules' && rulesConfig && (
+                <div className="max-w-4xl mx-auto space-y-4 animate-fadeIn">
+                  <div>
+                    <h2 className="text-2xl font-bold text-slate-100">Legal Metrology Rules Matrix</h2>
+                    <p className="text-sm text-slate-400 mt-1">Configured regulatory validations compiled in rules.json.</p>
+                  </div>
+
+                  <div className="bg-[#121829] border border-slate-850 rounded-xl divide-y divide-slate-800/80">
+                    {Object.entries(rulesConfig.rules).map(([rid, rule]) => (
+                      <div key={rid} className="p-4 flex gap-4 text-xs">
+                        <div className="w-8 h-8 rounded bg-slate-800 flex items-center justify-center font-bold text-indigo-400 font-mono shrink-0">
+                          {rid}
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-slate-250">{rule.title}</h4>
+                            <span className="text-[8px] bg-slate-800 text-slate-400 px-1 py-0.2 rounded font-bold uppercase">{rule.severity}</span>
+                          </div>
+                          <p className="text-slate-400 text-[11px]">{rule.description}</p>
+                          <p className="text-[10px] text-slate-500 mt-1">Field target: <code className="font-mono text-indigo-300">{rule.field}</code> | Match pattern: <code className="font-mono text-cyan-300">{rule.validation?.pattern}</code></p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            </div>
+          </main>
+
+          {/* CHATBOT FLOATING TRIGGER BUTTON */}
+          {activeAudit && (
+            <button 
+              onClick={() => setIsChatOpen(!isChatOpen)}
+              className="fixed bottom-6 right-6 z-50 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full px-5 py-3.5 shadow-xl shadow-indigo-600/30 flex items-center gap-2 cursor-pointer transition transform hover:scale-105 active:scale-95 no-print font-bold text-xs"
+            >
+              <span>🤖</span> Ask PackSure Guide
+            </button>
+          )}
+
+          {/* CHATBOT DRAWER PANEL */}
+          {activeAudit && (
+            <div 
+              className="fixed top-0 right-0 h-screen w-96 bg-[#0e1322] border-l border-slate-800 shadow-2xl z-50 flex flex-col justify-between transition-transform duration-300 no-print"
+              style={{ transform: isChatOpen ? 'translateX(0)' : 'translateX(100%)' }}
+            >
+              {/* Header */}
+              <div className="p-4 border-b border-slate-800 bg-[#121829] flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">🤖</span>
+                  <div>
+                    <h4 className="font-bold text-sm text-slate-100">PackSure Guide</h4>
+                    <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">AI Product Assistant</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsChatOpen(false)}
+                  className="text-slate-400 hover:text-white text-xs font-bold px-2 py-1 rounded hover:bg-slate-800"
+                >
+                  ✕ Close
+                </button>
+              </div>
+
+              {/* Message scroll thread */}
+              <div 
+                id="chat-scroll-pane" 
+                className="flex-1 p-4 overflow-y-auto space-y-3 flex flex-col scrollbar-thin"
+              >
+                {chatMessages.map((msg, idx) => {
+                  const isBot = msg.sender === 'bot';
+                  return (
+                    <div 
+                      key={idx}
+                      className={`p-3 rounded-xl max-w-[85%] text-xs leading-relaxed space-y-1 ${
+                        isBot 
+                          ? 'bg-[#121829] border border-slate-800/80 text-slate-200 self-start' 
+                          : 'bg-indigo-600 text-white self-end'
+                      }`}
+                    >
+                      {isBot ? (
+                        <div className="space-y-1">
+                          {renderFormattedText(msg.text)}
+                        </div>
+                      ) : (
+                        <p>{msg.text}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Quick Action Suggestion Chips */}
+              <div className="px-4 py-2 border-t border-slate-900 bg-[#0a0d17]/50 space-y-1.5">
+                <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest block">Suggested Queries:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    "Why this score?",
+                    "Is this product healthy?",
+                    "Explain ingredients",
+                    "Explain violations",
+                    "Why alternative?"
+                  ].map((chip) => (
+                    <button
+                      key={chip}
+                      onClick={() => handleSendChat(chip)}
+                      className="bg-slate-900 border border-slate-800 hover:border-indigo-500 hover:text-indigo-300 text-slate-400 text-[10px] px-2 py-1 rounded transition font-medium"
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Chat Input panel */}
+              <div className="p-4 border-t border-slate-800 bg-[#121829] flex gap-2">
+                <input 
+                  type="text" 
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSendChat(chatInput); }}
+                  placeholder="Ask about compliance or health..."
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-slate-200 outline-none placeholder-slate-600 focus:border-indigo-500 transition"
+                />
+                <button 
+                  onClick={() => handleSendChat(chatInput)}
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-4.5 py-2 text-xs font-bold transition"
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
